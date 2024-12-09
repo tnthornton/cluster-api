@@ -159,6 +159,7 @@ func (r *KubeadmControlPlaneReconciler) SetupWithManager(ctx context.Context, mg
 func (r *KubeadmControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, reterr error) {
 	log := ctrl.LoggerFrom(ctx)
 
+	fmt.Println("DEBUG >>> start", "Reconcile", "kubeadmcontrolplane")
 	// Fetch the KubeadmControlPlane instance.
 	kcp := &controlplanev1.KubeadmControlPlane{}
 	if err := r.Client.Get(ctx, req.NamespacedName, kcp); err != nil {
@@ -169,17 +170,21 @@ func (r *KubeadmControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	// Add finalizer first if not set to avoid the race condition between init and delete.
+	fmt.Println("DEBUG >>> before EnsureFinalizer", "Reconcile", "kubeadmcontrolplane")
 	if finalizerAdded, err := finalizers.EnsureFinalizer(ctx, r.Client, kcp, controlplanev1.KubeadmControlPlaneFinalizer); err != nil || finalizerAdded {
 		return ctrl.Result{}, err
 	}
+	fmt.Println("DEBUG >>> after EnsureFinalizer", "Reconcile", "kubeadmcontrolplane")
 
 	// Fetch the Cluster.
+	fmt.Println("DEBUG >>> before GetOwnerCluster", "Reconcile", "kubeadmcontrolplane")
 	cluster, err := util.GetOwnerCluster(ctx, r.Client, kcp.ObjectMeta)
 	if err != nil {
 		// It should be an issue to be investigated if the controller get the NotFound status.
 		// So, it should return the error.
 		return ctrl.Result{}, errors.Wrapf(err, "failed to retrieve owner Cluster")
 	}
+	fmt.Println("DEBUG >>> after GetOwnerCluster", "Reconcile", "kubeadmcontrolplane")
 	if cluster == nil {
 		log.Info("Cluster Controller has not yet set OwnerRef")
 		return ctrl.Result{}, nil
@@ -188,24 +193,31 @@ func (r *KubeadmControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.
 	log = log.WithValues("Cluster", klog.KObj(cluster))
 	ctx = ctrl.LoggerInto(ctx, log)
 
+	fmt.Println("DEBUG >>> before EnsurePausedCondition", "Reconcile", "kubeadmcontrolplane")
 	if isPaused, conditionChanged, err := paused.EnsurePausedCondition(ctx, r.Client, cluster, kcp); err != nil || isPaused || conditionChanged {
 		return ctrl.Result{}, err
 	}
+	fmt.Println("DEBUG >>> after EnsurePausedCondition", "Reconcile", "kubeadmcontrolplane")
 
 	// Initialize the patch helper.
+	fmt.Println("DEBUG >>> before patch.NewHelper", "Reconcile", "kubeadmcontrolplane")
 	patchHelper, err := patch.NewHelper(kcp, r.Client)
 	if err != nil {
 		log.Error(err, "Failed to configure the patch helper")
 		return ctrl.Result{Requeue: true}, nil
 	}
+	fmt.Println("DEBUG >>> after patch.NewHelper", "Reconcile", "kubeadmcontrolplane")
 
 	// Initialize the control plane scope; this includes also checking for orphan machines and
 	// adopt them if necessary.
+	fmt.Println("DEBUG >>> before initControlPlaneScope", "Reconcile", "kubeadmcontrolplane")
 	controlPlane, adoptableMachineFound, err := r.initControlPlaneScope(ctx, cluster, kcp)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	fmt.Println("DEBUG >>> after initControlPlaneScope", "Reconcile", "kubeadmcontrolplane")
 	if adoptableMachineFound {
+		fmt.Println("DEBUG >>> adoptableMachineFound", "Reconcile", "kubeadmcontrolplane")
 		// if there are no errors but at least one CP machine has been adopted, then requeue and
 		// wait for the update event for the ownership to be set.
 		return ctrl.Result{}, nil
@@ -230,10 +242,12 @@ func (r *KubeadmControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.
 		if reterr == nil {
 			patchOpts = append(patchOpts, patch.WithStatusObservedGeneration{})
 		}
+		fmt.Println("DEBUG >>> before patchKubeadmControlPlane", "Reconcile", "kubeadmcontrolplane")
 		if err := patchKubeadmControlPlane(ctx, patchHelper, kcp, patchOpts...); err != nil {
 			log.Error(err, "Failed to patch KubeadmControlPlane")
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
+		fmt.Println("DEBUG >>> after patchKubeadmControlPlane", "Reconcile", "kubeadmcontrolplane")
 
 		// Only requeue if there is no error, Requeue or RequeueAfter and the object does not have a deletion timestamp.
 		if reterr == nil && res.IsZero() && kcp.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -265,12 +279,15 @@ func (r *KubeadmControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.
 		return res, err
 	}
 
+	fmt.Println("DEBUG >>> before reconcile", "Reconcile", "kubeadmcontrolplane")
 	// Handle normal reconciliation loop.
 	res, err = r.reconcile(ctx, controlPlane)
 	if errors.Is(err, clustercache.ErrClusterNotConnected) {
 		log.V(5).Info("Requeuing because connection to the workload cluster is down")
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
+	fmt.Println("DEBUG >>> after reconcile", "Reconcile", "kubeadmcontrolplane")
+	fmt.Println("DEBUG >>> end", "Reconcile", "kubeadmcontrolplane")
 	return res, err
 }
 
@@ -369,7 +386,7 @@ func (r *KubeadmControlPlaneReconciler) reconcile(ctx context.Context, controlPl
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Reconcile KubeadmControlPlane")
 
-	fmt.Println("DEBUG >>> start", "reconciler", "kubeadmcontrolplane")
+	fmt.Println("DEBUG >>> start", "reconcile", "kubeadmcontrolplane")
 
 	// Make sure to reconcile the external infrastructure reference.
 	fmt.Println("DEBUG >>> before reconcileExternalReference", "reconciler", "kubeadmcontrolplane")

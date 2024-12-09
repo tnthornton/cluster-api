@@ -152,6 +152,7 @@ func (r *KubeadmConfigReconciler) SetupWithManager(ctx context.Context, mgr ctrl
 func (r *KubeadmConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	log := ctrl.LoggerFrom(ctx)
 
+	fmt.Println("DEBUG >>> start", "Reconcile", "kubeadmconfig")
 	// Look up the kubeadm config
 	config := &bootstrapv1.KubeadmConfig{}
 	if err := r.Client.Get(ctx, req.NamespacedName, config); err != nil {
@@ -162,6 +163,7 @@ func (r *KubeadmConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// Look up the owner of this kubeadm config if there is one
+	fmt.Println("DEBUG >>> before GetTypedConfigOwner", "Reconcile", "kubeadmconfig")
 	configOwner, err := bsutil.GetTypedConfigOwner(ctx, r.Client, config)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -170,6 +172,7 @@ func (r *KubeadmConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 		return ctrl.Result{}, errors.Wrapf(err, "failed to get owner")
 	}
+	fmt.Println("DEBUG >>> after GetTypedConfigOwner", "Reconcile", "kubeadmconfig")
 	if configOwner == nil {
 		return ctrl.Result{}, nil
 	}
@@ -189,6 +192,7 @@ func (r *KubeadmConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	// Lookup the cluster the config owner is associated with
+	fmt.Println("DEBUG >>> before GetClusterByName", "Reconcile", "kubeadmconfig")
 	cluster, err := util.GetClusterByName(ctx, r.Client, configOwner.GetNamespace(), configOwner.ClusterName())
 	if err != nil {
 		if errors.Cause(err) == util.ErrNoCluster {
@@ -203,10 +207,13 @@ func (r *KubeadmConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		log.Error(err, "Could not get cluster with metadata")
 		return ctrl.Result{}, err
 	}
+	fmt.Println("DEBUG >>> after GetClusterByName", "Reconcile", "kubeadmconfig")
 
+	fmt.Println("DEBUG >>> before EnsurePausedCondition", "Reconcile", "kubeadmconfig")
 	if isPaused, conditionChanged, err := paused.EnsurePausedCondition(ctx, r.Client, cluster, config); err != nil || isPaused || conditionChanged {
 		return ctrl.Result{}, err
 	}
+	fmt.Println("DEBUG >>> after EnsurePausedCondition", "Reconcile", "kubeadmconfig")
 
 	scope := &Scope{
 		Logger:      log,
@@ -216,10 +223,12 @@ func (r *KubeadmConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// Initialize the patch helper.
+	fmt.Println("DEBUG >>> before patch.NewHelper", "Reconcile", "kubeadmconfig")
 	patchHelper, err := patch.NewHelper(config, r.Client)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	fmt.Println("DEBUG >>> after patch.NewHelper", "Reconcile", "kubeadmconfig")
 
 	// Attempt to Patch the KubeadmConfig object and status after each reconciliation if no error occurs.
 	defer func() {
@@ -276,21 +285,29 @@ func (r *KubeadmConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
+	fmt.Println("DEBUG >>> before reconcile", "Reconcile", "kubeadmconfig")
 	res, err := r.reconcile(ctx, scope, cluster, config, configOwner)
 	if err != nil && errors.Is(err, clustercache.ErrClusterNotConnected) {
 		log.V(5).Info("Requeuing because connection to the workload cluster is down")
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
+	fmt.Println("DEBUG >>> after reconcile", "Reconcile", "kubeadmconfig")
+	fmt.Println("DEBUG >>> bottom", "Reconcile", "kubeadmconfig")
 	return res, err
 }
 
 func (r *KubeadmConfigReconciler) reconcile(ctx context.Context, scope *Scope, cluster *clusterv1.Cluster, config *bootstrapv1.KubeadmConfig, configOwner *bsutil.ConfigOwner) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
+	fmt.Println("DEBUG >>> start reconcile", "reconcile", "kubeadmconfig")
+
 	// Ensure the bootstrap secret associated with this KubeadmConfig has the correct ownerReference.
+	fmt.Println("DEBUG >>> before ensureBootstrapSecretOwnersRef", "reconcile", "kubeadmconfig")
 	if err := r.ensureBootstrapSecretOwnersRef(ctx, scope); err != nil {
 		return ctrl.Result{}, err
 	}
+	fmt.Println("DEBUG >>> after ensureBootstrapSecretOwnersRef", "reconcile", "kubeadmconfig")
+	fmt.Println("DEBUG >>> before switch1", "reconcile", "kubeadmconfig")
 	switch {
 	// Wait for the infrastructure to be ready.
 	case !cluster.Status.InfrastructureReady:
@@ -333,9 +350,11 @@ func (r *KubeadmConfigReconciler) reconcile(ctx context.Context, scope *Scope, c
 		// In any other case just return as the config is already generated and need not be generated again.
 		return ctrl.Result{}, nil
 	}
+	fmt.Println("DEBUG >>> after switch1", "reconcile", "kubeadmconfig")
 
 	// Note: can't use IsFalse here because we need to handle the absence of the condition as well as false.
 	if !conditions.IsTrue(cluster, clusterv1.ControlPlaneInitializedCondition) {
+		fmt.Println("DEBUG >>> before handleClusterNotInitialized", "reconcile", "kubeadmconfig")
 		return r.handleClusterNotInitialized(ctx, scope)
 	}
 
@@ -357,6 +376,7 @@ func (r *KubeadmConfigReconciler) reconcile(ctx context.Context, scope *Scope, c
 	}
 
 	// It's a worker join
+	fmt.Println("DEBUG >>> end reconcile", "reconcile", "kubeadmconfig")
 	return r.joinWorker(ctx, scope)
 }
 
