@@ -369,12 +369,17 @@ func (r *KubeadmControlPlaneReconciler) reconcile(ctx context.Context, controlPl
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Reconcile KubeadmControlPlane")
 
+	fmt.Println("DEBUG >>> start", "reconciler", "kubeadmcontrolplane")
+
 	// Make sure to reconcile the external infrastructure reference.
+	fmt.Println("DEBUG >>> before reconcileExternalReference", "reconciler", "kubeadmcontrolplane")
 	if err := r.reconcileExternalReference(ctx, controlPlane); err != nil {
 		return ctrl.Result{}, err
 	}
+	fmt.Println("DEBUG >>> after reconcileExternalReference", "reconciler", "kubeadmcontrolplane")
 
 	// Wait for the cluster infrastructure to be ready before creating machines
+	fmt.Println("DEBUG >>> before controlPlane.Cluster.Status.InfrastructureReady", "reconciler", "kubeadmcontrolplane")
 	if !controlPlane.Cluster.Status.InfrastructureReady {
 		// Note: in future we might want to move this inside reconcileControlPlaneAndMachinesConditions.
 		v1beta2conditions.Set(controlPlane.KCP, metav1.Condition{
@@ -394,13 +399,18 @@ func (r *KubeadmControlPlaneReconciler) reconcile(ctx context.Context, controlPl
 		log.Info("Cluster infrastructure is not ready yet")
 		return ctrl.Result{}, nil
 	}
+	fmt.Println("DEBUG >>> after controlPlane.Cluster.Status.InfrastructureReady", "reconciler", "kubeadmcontrolplane")
 
 	// Reconcile cluster certificates.
+	fmt.Println("DEBUG >>> before reconcileClusterCertificates", "reconciler", "kubeadmcontrolplane")
 	if err := r.reconcileClusterCertificates(ctx, controlPlane); err != nil {
 		return ctrl.Result{}, err
 	}
 
+	fmt.Println("DEBUG >>> after reconcileClusterCertificates", "reconciler", "kubeadmcontrolplane")
+
 	// If ControlPlaneEndpoint is not set, return early
+	fmt.Println("DEBUG >>> before controlPlane.Cluster.Spec.ControlPlaneEndpoint.IsValid()", "reconciler", "kubeadmcontrolplane")
 	if !controlPlane.Cluster.Spec.ControlPlaneEndpoint.IsValid() {
 		// Note: in future we might want to move this inside reconcileControlPlaneAndMachinesConditions.
 		v1beta2conditions.Set(controlPlane.KCP, metav1.Condition{
@@ -420,18 +430,23 @@ func (r *KubeadmControlPlaneReconciler) reconcile(ctx context.Context, controlPl
 		log.Info("Cluster does not yet have a ControlPlaneEndpoint defined")
 		return ctrl.Result{}, nil
 	}
+	fmt.Println("DEBUG >>> after controlPlane.Cluster.Spec.ControlPlaneEndpoint.IsValid()", "reconciler", "kubeadmcontrolplane")
 
 	// Generate Cluster Kubeconfig if needed
+	fmt.Println("DEBUG >>> before reconcileKubeconfig", "reconciler", "kubeadmcontrolplane")
 	if result, err := r.reconcileKubeconfig(ctx, controlPlane); !result.IsZero() || err != nil {
 		if err != nil {
 			log.Error(err, "Failed to reconcile Kubeconfig")
 		}
 		return result, err
 	}
+	fmt.Println("DEBUG >>> after reconcileKubeconfig", "reconciler", "kubeadmcontrolplane")
 
+	fmt.Println("DEBUG >>> before syncMachines", "reconciler", "kubeadmcontrolplane")
 	if err := r.syncMachines(ctx, controlPlane); err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "failed to sync Machines")
 	}
+	fmt.Println("DEBUG >>> after syncMachines", "reconciler", "kubeadmcontrolplane")
 
 	// Aggregate the operational state of all the machines; while aggregating we are adding the
 	// source ref (reason@machine/name) so the problem can be easily tracked down to its source machine.
@@ -439,29 +454,38 @@ func (r *KubeadmControlPlaneReconciler) reconcile(ctx context.Context, controlPl
 
 	// Updates conditions reporting the status of static pods and the status of the etcd cluster.
 	// NOTE: Conditions reporting KCP operation progress like e.g. Resized or SpecUpToDate are inlined with the rest of the execution.
+	fmt.Println("DEBUG >>> before reconcileControlPlaneAndMachinesConditions", "reconciler", "kubeadmcontrolplane")
 	if err := r.reconcileControlPlaneAndMachinesConditions(ctx, controlPlane); err != nil {
 		return ctrl.Result{}, err
 	}
+	fmt.Println("DEBUG >>> after reconcileControlPlaneAndMachinesConditions", "reconciler", "kubeadmcontrolplane")
 
 	// Ensures the number of etcd members is in sync with the number of machines/nodes.
 	// NOTE: This is usually required after a machine deletion.
+	fmt.Println("DEBUG >>> before reconcileEtcdMembers", "reconciler", "kubeadmcontrolplane")
 	if err := r.reconcileEtcdMembers(ctx, controlPlane); err != nil {
 		return ctrl.Result{}, err
 	}
+	fmt.Println("DEBUG >>> after reconcileEtcdMembers", "reconciler", "kubeadmcontrolplane")
 
 	// Handle machines in deletion phase; when drain and wait for volume detach completed, forward etcd leadership
 	// and remove the etcd member, then unblock deletion.
+	fmt.Println("DEBUG >>> before reconcilePreTerminateHook", "reconciler", "kubeadmcontrolplane")
 	if result, err := r.reconcilePreTerminateHook(ctx, controlPlane); err != nil || !result.IsZero() {
 		return result, err
 	}
+	fmt.Println("DEBUG >>> after reconcilePreTerminateHook", "reconciler", "kubeadmcontrolplane")
 
 	// Reconcile unhealthy machines by triggering deletion and requeue if it is considered safe to remediate,
 	// otherwise continue with the other KCP operations.
+	fmt.Println("DEBUG >>> before reconcileUnhealthyMachines", "reconciler", "kubeadmcontrolplane")
 	if result, err := r.reconcileUnhealthyMachines(ctx, controlPlane); err != nil || !result.IsZero() {
 		return result, err
 	}
+	fmt.Println("DEBUG >>> after reconcileUnhealthyMachines", "reconciler", "kubeadmcontrolplane")
 
 	// Control plane machines rollout due to configuration changes (e.g. upgrades) takes precedence over other operations.
+	fmt.Println("DEBUG >>> before switch1", "reconciler", "kubeadmcontrolplane")
 	machinesNeedingRollout, machinesNeedingRolloutLogMessages := controlPlane.MachinesNeedingRollout()
 	switch {
 	case len(machinesNeedingRollout) > 0:
@@ -480,11 +504,13 @@ func (r *KubeadmControlPlaneReconciler) reconcile(ctx context.Context, controlPl
 			conditions.MarkTrue(controlPlane.KCP, controlplanev1.MachinesSpecUpToDateCondition)
 		}
 	}
+	fmt.Println("DEBUG >>> after switch1", "reconciler", "kubeadmcontrolplane")
 
 	// If we've made it this far, we can assume that all ownedMachines are up to date
 	numMachines := len(controlPlane.Machines)
 	desiredReplicas := int(*controlPlane.KCP.Spec.Replicas)
 
+	fmt.Println("DEBUG >>> before switch2", "reconciler", "kubeadmcontrolplane")
 	switch {
 	// We are creating the first replica
 	case numMachines < desiredReplicas && numMachines == 0:
@@ -503,44 +529,58 @@ func (r *KubeadmControlPlaneReconciler) reconcile(ctx context.Context, controlPl
 		// The last parameter (i.e. machines needing to be rolled out) should always be empty here.
 		return r.scaleDownControlPlane(ctx, controlPlane, collections.Machines{})
 	}
+	fmt.Println("DEBUG >>> after switch2", "reconciler", "kubeadmcontrolplane")
 
 	// Get the workload cluster client.
+	fmt.Println("DEBUG >>> before GetWorkloadCluster", "reconciler", "kubeadmcontrolplane")
 	workloadCluster, err := controlPlane.GetWorkloadCluster(ctx)
 	if err != nil {
 		log.V(2).Info("cannot get remote client to workload cluster, will requeue", "cause", err)
 		return ctrl.Result{Requeue: true}, nil
 	}
+	fmt.Println("DEBUG >>> after GetWorkloadCluster", "reconciler", "kubeadmcontrolplane")
 
 	// Ensure kubeadm role bindings for v1.18+
+	fmt.Println("DEBUG >>> before AllowBootstrapTokensToGetNodes", "reconciler", "kubeadmcontrolplane")
 	if err := workloadCluster.AllowBootstrapTokensToGetNodes(ctx); err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "failed to set role and role binding for kubeadm")
 	}
+	fmt.Println("DEBUG >>> after AllowBootstrapTokensToGetNodes", "reconciler", "kubeadmcontrolplane")
 
 	// We intentionally only parse major/minor/patch so that the subsequent code
 	// also already applies to beta versions of new releases.
+	fmt.Println("DEBUG >>> before ParseMajorMinorPatchTolerant", "reconciler", "kubeadmcontrolplane")
 	parsedVersion, err := version.ParseMajorMinorPatchTolerant(controlPlane.KCP.Spec.Version)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrapf(err, "failed to parse kubernetes version %q", controlPlane.KCP.Spec.Version)
 	}
+	fmt.Println("DEBUG >>> after ParseMajorMinorPatchTolerant", "reconciler", "kubeadmcontrolplane")
 
 	// Update kube-proxy daemonset.
+	fmt.Println("DEBUG >>> before UpdateKubeProxyImageInfo", "reconciler", "kubeadmcontrolplane")
 	if err := workloadCluster.UpdateKubeProxyImageInfo(ctx, controlPlane.KCP, parsedVersion); err != nil {
 		log.Error(err, "Failed to update kube-proxy daemonset")
 		return ctrl.Result{}, err
 	}
+	fmt.Println("DEBUG >>> after UpdateKubeProxyImageInfo", "reconciler", "kubeadmcontrolplane")
 
 	// Update CoreDNS deployment.
+	fmt.Println("DEBUG >>> before UpdateCoreDNS", "reconciler", "kubeadmcontrolplane")
 	if err := workloadCluster.UpdateCoreDNS(ctx, controlPlane.KCP, parsedVersion); err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "failed to update CoreDNS deployment")
 	}
+	fmt.Println("DEBUG >>> after UpdateCoreDNS", "reconciler", "kubeadmcontrolplane")
 
 	// Reconcile certificate expiry for Machines that don't have the expiry annotation on KubeadmConfig yet.
 	// Note: This requires that all control plane machines are working. We moved this to the end of the reconcile
 	// as nothing in the same reconcile depends on it and to ensure it doesn't block anything else,
 	// especially MHC remediation and rollout of changes to recover the control plane.
+	fmt.Println("DEBUG >>> before reconcileCertificateExpiries", "reconciler", "kubeadmcontrolplane")
 	if err := r.reconcileCertificateExpiries(ctx, controlPlane); err != nil {
 		return ctrl.Result{}, err
 	}
+	fmt.Println("DEBUG >>> after reconcileCertificateExpiries", "reconciler", "kubeadmcontrolplane")
+	fmt.Println("DEBUG >>> end", "reconciler", "kubeadmcontrolplane")
 	return ctrl.Result{}, nil
 }
 
